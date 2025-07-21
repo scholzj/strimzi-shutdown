@@ -16,10 +16,13 @@ limitations under the License.
 package cmd
 
 import (
-	"fmt"
+	"context"
 	"log"
+	"slices"
 
+	kafkaapi "github.com/scholzj/strimzi-go/pkg/apis/kafka.strimzi.io/v1beta2"
 	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // stopCmd represents the stop command
@@ -28,9 +31,81 @@ var stopCmd = &cobra.Command{
 	Short: "Stops the Kafka cluster",
 	Long:  "Stops the Kafka cluster.",
 	Run: func(cmd *cobra.Command, args []string) {
-		kubeconfig := getKubeConfig(cmd.Flag("kubeconfig").Value.String())
-		log.Printf("Using kubeconfig %s", cmd.Flag("kubeconfig").Value)
-		fmt.Println("stop called")
+		name := cmd.Flag("name").Value.String()
+		if name == "" {
+			log.Fatal("--name option is required")
+		}
+
+		kubeConfig, kubeConfigNamespace, err := kubeConfigAndNamespace(cmd.Flag("kubeconfig").Value.String())
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		namespace, err := determineNamespace(cmd.Flag("namespace").Value.String(), kubeConfigNamespace)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		strimzi := strimziClient(kubeConfig)
+
+		kafka, err := strimzi.KafkaV1beta2().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			log.Fatalf("Kafka cluster %v in namespace %s not found: %v", name, namespace, err)
+		}
+
+		if !isReconciliationPaused(kafka) {
+			pausedKafka := kafka.DeepCopy()
+			if pausedKafka.Annotations == nil {
+				pausedKafka.Annotations = map[string]string{"strimzi.io/pause-reconciliation": "true"}
+			} else {
+				pausedKafka.Annotations["strimzi.io/pause-reconciliation"] = "true"
+			}
+
+			log.Printf("Pausing reconciliation of Kafka cluster %s in namespace %s", name, namespace)
+			_, err = strimzi.KafkaV1beta2().Kafkas(namespace).Update(context.TODO(), pausedKafka, metav1.UpdateOptions{})
+			if err != nil {
+				log.Fatalf("failed to pause Kafka cluster %s in namespace %s: %v", name, namespace, err)
+			}
+
+			log.Printf("Waiting for Kafka cluster %s in namespace %s reconciliation to be paused", name, namespace)
+			_, err = waitUntilReconciliationPaused(strimzi, name, namespace)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Reconciliation of Kafka cluster %s in namespace %s is paused", name, namespace)
+		} else {
+			log.Printf("Kafka cluster %s in namespace %s has already paused reconciliation", name, namespace)
+		}
+
+		// TODO: Delete deployments
+
+		nodePools, err := strimzi.KafkaV1beta2().KafkaNodePools(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "strimzi.io/cluster=" + name})
+		if err != nil {
+			log.Fatalf("failed to get KafkaNodePools belonging to Kafka cluster %s in namespace %s: %v", name, namespace, err)
+		}
+
+		log.Printf("Stopping all Kafka nodes with broker role only")
+		for _, pool := range nodePools.Items {
+			if !slices.Contains(pool.Spec.Roles, kafkaapi.CONTROLLER_PROCESSROLES) {
+				err = deletePodSet(strimzi, name, pool.Name, namespace)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+		}
+
+		log.Printf("Stopping all remaining Kafka nodes")
+		for _, pool := range nodePools.Items {
+			if slices.Contains(pool.Spec.Roles, kafkaapi.CONTROLLER_PROCESSROLES) {
+				err = deletePodSet(strimzi, name, pool.Name, namespace)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+		}
+
+		log.Printf("Kafka cluster %s in namespace %s has been stopped", name, namespace)
 	},
 }
 

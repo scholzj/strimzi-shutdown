@@ -16,8 +16,10 @@ limitations under the License.
 package cmd
 
 import (
-	"fmt"
+	"context"
 	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"log"
 )
 
 // continueCmd represents the continue command
@@ -26,7 +28,63 @@ var continueCmd = &cobra.Command{
 	Short: "Restarts the Kafka cluster",
 	Long:  "Restarts the Kafka cluster.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("continue called")
+		name := cmd.Flag("name").Value.String()
+		if name == "" {
+			log.Fatal("--name option is required")
+		}
+
+		kubeConfig, kubeConfigNamespace, err := kubeConfigAndNamespace(cmd.Flag("kubeconfig").Value.String())
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		namespace, err := determineNamespace(cmd.Flag("namespace").Value.String(), kubeConfigNamespace)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		strimzi := strimziClient(kubeConfig)
+
+		kafka, err := strimzi.KafkaV1beta2().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			log.Fatalf("Kafka cluster %v in namespace %s not found: %v", name, namespace, err)
+		}
+
+		if isReconciliationPaused(kafka) {
+			log.Printf("Reconciliation of Kafka cluster %s in namespace %s will be unpaused", name, namespace)
+			unpausedKafka := kafka.DeepCopy()
+
+			if unpausedKafka.Annotations == nil {
+				unpausedKafka.Annotations = map[string]string{"strimzi.io/pause-reconciliation": "false"}
+			} else {
+				unpausedKafka.Annotations["strimzi.io/pause-reconciliation"] = "false"
+			}
+
+			log.Printf("Unpausing reconciliation of Kafka cluster %s in namespace %s", name, namespace)
+			_, err = strimzi.KafkaV1beta2().Kafkas(namespace).Update(context.TODO(), unpausedKafka, metav1.UpdateOptions{})
+			if err != nil {
+				log.Fatalf("failed to unpause Kafka cluster %s in namespace %s: %v", name, namespace, err)
+			}
+
+			log.Printf("Waiting for Kafka cluster %s in namespace %s to get ready.", name, namespace)
+			_, err = waitUntilReady(strimzi, name, namespace)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Kafka cluster %s in namespace %s has been restarted and should be ready", name, namespace)
+		} else if isReady(kafka) {
+			log.Printf("Kafka cluster %s in namespace %s is ready and does not need to be restarted", name, namespace)
+		} else {
+			log.Printf("Waiting for Kafka cluster %s in namespace %s does not have paused reconciliation, but is not ready.", name, namespace)
+			log.Printf("Waiting for Kafka cluster %s in namespace %s to get ready.", name, namespace)
+			_, err = waitUntilReady(strimzi, name, namespace)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Kafka cluster %s in namespace %s has been restarted and should be ready", name, namespace)
+		}
 	},
 }
 
