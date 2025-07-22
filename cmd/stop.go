@@ -95,7 +95,7 @@ var stopCmd = &cobra.Command{
 			deploymentWg.Add(1)
 			go func() {
 				defer deploymentWg.Done()
-				err = deleteDeployment(kube, name, "cluster-control", namespace, timeout)
+				err = deleteDeployment(kube, name, "cruise-control", namespace, timeout)
 				if err != nil {
 					log.Fatalf("Failed to delete Cruise Control deployment: %v", err)
 				}

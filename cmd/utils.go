@@ -96,8 +96,12 @@ func kubeConfigPath(kubeConfigOption string) string {
 			log.Printf("Using kubeconfig %s", kubeConfigPath)
 			return kubeConfigPath
 		} else if home := homedir.HomeDir(); home != "" {
-			kubeConfigPath = filepath.Join(home, ".kube", "config")
-			log.Printf("Using kubeconfig %s", kubeConfigPath)
+			homeKubeConfigPath := filepath.Join(home, ".kube", "config")
+			_, err := os.Stat(homeKubeConfigPath)
+			if err == nil {
+				kubeConfigPath = homeKubeConfigPath
+				log.Printf("Using kubeconfig %s", kubeConfigPath)
+			}
 		} else {
 			log.Printf("Could not find Kubernetes configuration file. In-cluster configuration will be used.")
 		}

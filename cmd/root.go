@@ -44,8 +44,8 @@ func init() {
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
-	rootCmd.PersistentFlags().String("kubeconfig", "", "Path to the kubeconfig file to use for Kubernetes API requests.")
-	rootCmd.PersistentFlags().String("namespace", "", "Namespace of the Kafka cluster")
+	rootCmd.PersistentFlags().String("kubeconfig", "", "Path to the kubeconfig file to use for Kubernetes API requests. If not specified, strimzi-shutdown will try to auto-detect the Kubernetes configuration.")
+	rootCmd.PersistentFlags().String("namespace", "", "Namespace of the Kafka cluster. If not specified, defaults to the namespace from your Kubernetes configuration.")
 	rootCmd.PersistentFlags().String("name", "", "Name of the Kafka cluster")
 	rootCmd.PersistentFlags().Uint32P("timeout", "t", 300000, "Timeout for how long to wait when stopping or continuing the Kafka cluster. In milliseconds.")
 
