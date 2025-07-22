@@ -69,9 +69,9 @@ $ ./strimzi-shutdown continue --namespace myproject --name my-cluster
 2025/07/22 11:47:02 Kafka cluster my-cluster in namespace myproject has been restarted and should be ready
 ```
 
-### Scheduled shutdown and restart of a Kafka cluster using Kubernetes CronJob
+### Scheduled shutdown and restart of a Kafka cluster using Kubernetes `CronJob`
 
-You can use Kubernetes CronJob with Strimzi Shutdown to stop or restart your Kafka cluster at a specific time.
+You can use Kubernetes `CronJob` with Strimzi Shutdown to stop or restart your Kafka cluster at a specific time.
 To do so, you can use the following `CronJob`:
 
 ```yaml
@@ -118,7 +118,7 @@ kind: CronJob
 metadata:
   name: shutdown-my-cluster
 spec:
-  schedule: "10 13 * * *"
+  schedule: "00 20 * * 1-5"
   jobTemplate:
     spec:
       template:
@@ -126,13 +126,11 @@ spec:
           serviceAccountName: strimzi-shutdown
           containers:
             - name: strimzi-shutdown
-              image: quay.io/scholzj/strimzi-shutdown:test
-              imagePullPolicy: Always
+              image: ghcr.io/scholzj/strimzi-shutdown:0.1.0
               command:
                 - /strimzi-shutdown
                 - stop
                 - --name=my-cluster
-              #- --namespace=myproject
           restartPolicy: OnFailure
 
 ---
@@ -141,7 +139,7 @@ kind: CronJob
 metadata:
   name: restart-my-cluster
 spec:
-  schedule: "15 13 * * *"
+  schedule: "00 8 * * 1-5"
   jobTemplate:
     spec:
       template:
@@ -149,17 +147,18 @@ spec:
           serviceAccountName: strimzi-shutdown
           containers:
             - name: strimzi-shutdown
-              image: quay.io/scholzj/strimzi-shutdown:test
-              imagePullPolicy: Always
+              image: ghcr.io/scholzj/strimzi-shutdown:0.1.0
               command:
                 - /strimzi-shutdown
                 - continue
                 - --name=my-cluster
-              #- --namespace=myproject
           restartPolicy: OnFailure
 ```
 
-In the example, it 
+This example will stop the Kafka cluster named `my-cluster` every Monday to Friday at 8 pm.
+And it will start the same Kafka cluster again every Monday to Friday at 8 am.
+
+Note: If you want to deploy the `CronJob` into a different namespace from where the Kafka cluster is running, you would need to adjust the RBAC resources accordingly and use the `--namespace` option. 
 
 ## Frequently Asked Questions
 

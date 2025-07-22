@@ -1,0 +1,75 @@
+name: Build Strimzi Shutdown
+on:
+  push:
+    branches:
+      - 'main'
+    tags:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      #Preparations
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - name: Log in to Docker Repository
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the Go project
+      - name: Run Golang tests
+        run: go test -v ./...
+      - name: Build Golang binaries
+        env:
+          PLATFORMS: "darwin/arm64 darwin/amd64 linux/386 linux/amd64 linux/arm64 windows/amd64 windows/arm64 windows/386"
+          VERSION: ${{github.ref_name}}
+        run: |
+          for PLATFORM in ${PLATFORMS}
+          do
+              PLATFORM_SPLIT=(${PLATFORM//\// })
+              GOOS=${PLATFORM_SPLIT[0]}
+              GOARCH=${PLATFORM_SPLIT[1]}
+              OUTPUT_NAME=strimzi-shutdown'-'$VERSION'-'$GOOS'-'$GOARCH
+              
+              echo "Building platform ${PLATFORM} as ${OUTPUT_NAME}"
+              
+              if [ $GOOS = "windows" ]; then
+                  OUTPUT_NAME+='.exe'
+              fi
+          
+              env CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build -o $OUTPUT_NAME
+              if [ $? -ne 0 ]; then
+                  echo 'An error has occurred! Aborting the script execution...'
+                  exit 1
+              fi
+          done
+
+      # Container image build
+      - name: Build and push container images
+        env:
+          PLATFORMS: "linux/amd64,linux/arm64"
+        run: |
+          docker buildx build --platform $PLATFORMS --output "type=image,push=true" --tag ghcr.io/scholzj/strimzi-shutdown:${{github.ref_name}} .
+
+      # Upload the binaries for use from CLI
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: strimzi-shutdown
+          path: strimzi-shutdown-*
