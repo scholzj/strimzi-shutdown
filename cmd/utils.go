@@ -118,8 +118,8 @@ func determineNamespace(namespaceOption string, kubeConfigNamespace string) (str
 	}
 }
 
-func waitUntilReady(client *strimzi.Clientset, name string, namespace string) (bool, error) {
-	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Minute*5)
+func waitUntilReady(client *strimzi.Clientset, name string, namespace string, timeout uint32) (bool, error) {
+	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 	defer watchContextCancel()
 
 	watcher, err := client.KafkaV1beta2().Kafkas(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})
@@ -160,8 +160,8 @@ func isReady(k *kafkaapi.Kafka) bool {
 	}
 }
 
-func waitUntilReconciliationPaused(client *strimzi.Clientset, name string, namespace string) (bool, error) {
-	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Minute*5)
+func waitUntilReconciliationPaused(client *strimzi.Clientset, name string, namespace string, timeout uint32) (bool, error) {
+	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 	defer watchContextCancel()
 
 	watcher, err := client.KafkaV1beta2().Kafkas(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})
@@ -200,7 +200,7 @@ func isReconciliationPaused(k *kafkaapi.Kafka) bool {
 	}
 }
 
-func deletePodSet(kube *kubernetes.Clientset, strimzi *strimzi.Clientset, clusterName string, poolName string, namespace string) error {
+func deletePodSet(kube *kubernetes.Clientset, strimzi *strimzi.Clientset, clusterName string, poolName string, namespace string, timeout uint32) error {
 	podSetName := clusterName + "-" + poolName
 	log.Printf("Deleting StrimziPodSet %s for KafkaNodePool %s", podSetName, poolName)
 
@@ -213,11 +213,11 @@ func deletePodSet(kube *kubernetes.Clientset, strimzi *strimzi.Clientset, cluste
 		return nil
 	} else {
 		// Wait for Pod deletion
-		return waitForPodSetPodsDeletion(kube, clusterName, poolName, podSetName, namespace)
+		return waitForPodSetPodsDeletion(kube, clusterName, poolName, podSetName, namespace, timeout)
 	}
 }
 
-func waitForPodSetPodsDeletion(kube *kubernetes.Clientset, clusterName string, poolName string, podSetName string, namespace string) error {
+func waitForPodSetPodsDeletion(kube *kubernetes.Clientset, clusterName string, poolName string, podSetName string, namespace string, timeout uint32) error {
 	// The Pod owner references to StrimziPodSets do not set `blockOwnerDeletion: true`.
 	// As a result, foreground deletion of the StrimziPodSet does not wait for Pod
 	// deletion and we need to check the Pod deletion separately.
@@ -226,7 +226,7 @@ func waitForPodSetPodsDeletion(kube *kubernetes.Clientset, clusterName string, p
 	defer close(podsDeleted)
 	podsDeletedError := make(chan error, 1)
 	defer close(podsDeletedError)
-	timer := time.NewTimer(time.Minute * 5)
+	timer := time.NewTimer(time.Millisecond * time.Duration(timeout))
 	defer timer.Stop()
 
 	go func() {
@@ -251,12 +251,12 @@ func waitForPodSetPodsDeletion(kube *kubernetes.Clientset, clusterName string, p
 	case err := <-podsDeletedError:
 		return err
 	case <-timer.C:
-		//case <-time.After(time.Minute * 5):
+		//case <-time.After(time.Millisecond*time.Duration(timeout)):
 		return fmt.Errorf("timed out waiting for Pod deletion for StrimziPodSet %s in namespace %s", podSetName, namespace)
 	}
 }
 
-func deleteDeployment(kube *kubernetes.Clientset, clusterName string, componentName string, namespace string) error {
+func deleteDeployment(kube *kubernetes.Clientset, clusterName string, componentName string, namespace string, timeout uint32) error {
 	deploymentName := clusterName + "-" + componentName
 	log.Printf("Deleting Deployment %s in namespace %s", deploymentName, namespace)
 
@@ -268,12 +268,12 @@ func deleteDeployment(kube *kubernetes.Clientset, clusterName string, componentN
 	} else if errors.IsNotFound(err) {
 		return nil
 	} else {
-		return waitForDeploymentDeletion(kube, deploymentName, namespace)
+		return waitForDeploymentDeletion(kube, deploymentName, namespace, timeout)
 	}
 }
 
-func waitForDeploymentDeletion(kube *kubernetes.Clientset, name string, namespace string) error {
-	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Minute*5)
+func waitForDeploymentDeletion(kube *kubernetes.Clientset, name string, namespace string, timeout uint32) error {
+	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 	defer watchContextCancel()
 
 	watcher, err := kube.AppsV1().Deployments(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})

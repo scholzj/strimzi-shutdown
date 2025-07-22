@@ -32,6 +32,8 @@ var stopCmd = &cobra.Command{
 	Short: "Stops the Kafka cluster",
 	Long:  "Stops the Kafka cluster.",
 	Run: func(cmd *cobra.Command, args []string) {
+		timeout, _ := cmd.Flags().GetUint32("timeout")
+
 		name := cmd.Flag("name").Value.String()
 		if name == "" {
 			log.Fatal("--name option is required")
@@ -77,7 +79,7 @@ var stopCmd = &cobra.Command{
 			}
 
 			log.Printf("Waiting for Kafka cluster %s in namespace %s reconciliation to be paused", name, namespace)
-			_, err = waitUntilReconciliationPaused(strimzi, name, namespace)
+			_, err = waitUntilReconciliationPaused(strimzi, name, namespace, timeout)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -93,9 +95,9 @@ var stopCmd = &cobra.Command{
 			deploymentWg.Add(1)
 			go func() {
 				defer deploymentWg.Done()
-				err = deleteDeployment(kube, name, "cluster-control", namespace)
+				err = deleteDeployment(kube, name, "cluster-control", namespace, timeout)
 				if err != nil {
-					log.Printf("Failed to delete Cruise Control deployment: %v", err)
+					log.Fatalf("Failed to delete Cruise Control deployment: %v", err)
 				}
 			}()
 		}
@@ -104,9 +106,9 @@ var stopCmd = &cobra.Command{
 			deploymentWg.Add(1)
 			go func() {
 				defer deploymentWg.Done()
-				err = deleteDeployment(kube, name, "kafka-exporter", namespace)
+				err = deleteDeployment(kube, name, "kafka-exporter", namespace, timeout)
 				if err != nil {
-					log.Printf("Failed to delete Kafka Exporter deployment: %v", err)
+					log.Fatalf("Failed to delete Kafka Exporter deployment: %v", err)
 				}
 			}()
 		}
@@ -115,9 +117,9 @@ var stopCmd = &cobra.Command{
 			deploymentWg.Add(1)
 			go func() {
 				defer deploymentWg.Done()
-				err = deleteDeployment(kube, name, "entity-operator", namespace)
+				err = deleteDeployment(kube, name, "entity-operator", namespace, timeout)
 				if err != nil {
-					log.Printf("Failed to delete Entity Operator deployment: %v", err)
+					log.Fatalf("Failed to delete Entity Operator deployment: %v", err)
 				}
 			}()
 		}
@@ -138,7 +140,7 @@ var stopCmd = &cobra.Command{
 				brokersWg.Add(1)
 				go func() {
 					defer brokersWg.Done()
-					err = deletePodSet(kube, strimzi, name, pool.Name, namespace)
+					err = deletePodSet(kube, strimzi, name, pool.Name, namespace, timeout)
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -157,7 +159,7 @@ var stopCmd = &cobra.Command{
 				controllersWg.Add(1)
 				go func() {
 					defer controllersWg.Done()
-					err = deletePodSet(kube, strimzi, name, pool.Name, namespace)
+					err = deletePodSet(kube, strimzi, name, pool.Name, namespace, timeout)
 					if err != nil {
 						log.Fatal(err)
 					}

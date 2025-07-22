@@ -28,6 +28,8 @@ var continueCmd = &cobra.Command{
 	Short: "Restarts the Kafka cluster",
 	Long:  "Restarts the Kafka cluster.",
 	Run: func(cmd *cobra.Command, args []string) {
+		timeout, _ := cmd.Flags().GetUint32("timeout")
+
 		name := cmd.Flag("name").Value.String()
 		if name == "" {
 			log.Fatal("--name option is required")
@@ -70,7 +72,7 @@ var continueCmd = &cobra.Command{
 			}
 
 			log.Printf("Waiting for Kafka cluster %s in namespace %s to get ready.", name, namespace)
-			_, err = waitUntilReady(strimzi, name, namespace)
+			_, err = waitUntilReady(strimzi, name, namespace, timeout)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -81,7 +83,7 @@ var continueCmd = &cobra.Command{
 		} else {
 			log.Printf("Waiting for Kafka cluster %s in namespace %s does not have paused reconciliation, but is not ready.", name, namespace)
 			log.Printf("Waiting for Kafka cluster %s in namespace %s to get ready.", name, namespace)
-			_, err = waitUntilReady(strimzi, name, namespace)
+			_, err = waitUntilReady(strimzi, name, namespace, timeout)
 			if err != nil {
 				log.Fatal(err)
 			}
