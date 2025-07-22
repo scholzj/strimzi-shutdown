@@ -19,6 +19,7 @@ import (
 	"context"
 	"log"
 	"slices"
+	"sync"
 
 	kafkaapi "github.com/scholzj/strimzi-go/pkg/apis/kafka.strimzi.io/v1beta2"
 	"github.com/spf13/cobra"
@@ -46,7 +47,15 @@ var stopCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 
-		strimzi := strimziClient(kubeConfig)
+		kube, err := kubeClient(kubeConfig)
+		if err != nil {
+			log.Fatalf("Failed to create Kubernetes client: %v", err)
+		}
+
+		strimzi, err := strimziClient(kubeConfig)
+		if err != nil {
+			log.Fatalf("Failed to create Strimzi client: %v", err)
+		}
 
 		kafka, err := strimzi.KafkaV1beta2().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
@@ -78,7 +87,43 @@ var stopCmd = &cobra.Command{
 			log.Printf("Kafka cluster %s in namespace %s has already paused reconciliation", name, namespace)
 		}
 
-		// TODO: Delete deployments
+		var deploymentWg sync.WaitGroup
+
+		if kafka.Spec.CruiseControl != nil {
+			deploymentWg.Add(1)
+			go func() {
+				defer deploymentWg.Done()
+				err = deleteDeployment(kube, name, "cluster-control", namespace)
+				if err != nil {
+					log.Printf("Failed to delete Cruise Control deployment: %v", err)
+				}
+			}()
+		}
+
+		if kafka.Spec.KafkaExporter != nil {
+			deploymentWg.Add(1)
+			go func() {
+				defer deploymentWg.Done()
+				err = deleteDeployment(kube, name, "kafka-exporter", namespace)
+				if err != nil {
+					log.Printf("Failed to delete Kafka Exporter deployment: %v", err)
+				}
+			}()
+		}
+
+		if kafka.Spec.EntityOperator != nil {
+			deploymentWg.Add(1)
+			go func() {
+				defer deploymentWg.Done()
+				err = deleteDeployment(kube, name, "entity-operator", namespace)
+				if err != nil {
+					log.Printf("Failed to delete Entity Operator deployment: %v", err)
+				}
+			}()
+		}
+
+		// Wait for deployment deletions to complete
+		deploymentWg.Wait()
 
 		nodePools, err := strimzi.KafkaV1beta2().KafkaNodePools(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "strimzi.io/cluster=" + name})
 		if err != nil {
@@ -86,24 +131,42 @@ var stopCmd = &cobra.Command{
 		}
 
 		log.Printf("Stopping all Kafka nodes with broker role only")
+		var brokersWg sync.WaitGroup
+
 		for _, pool := range nodePools.Items {
 			if !slices.Contains(pool.Spec.Roles, kafkaapi.CONTROLLER_PROCESSROLES) {
-				err = deletePodSet(strimzi, name, pool.Name, namespace)
-				if err != nil {
-					log.Fatal(err)
-				}
+				brokersWg.Add(1)
+				go func() {
+					defer brokersWg.Done()
+					err = deletePodSet(kube, strimzi, name, pool.Name, namespace)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}()
 			}
 		}
 
+		// Wait for broker-only nodes to be removed
+		brokersWg.Wait()
+
 		log.Printf("Stopping all remaining Kafka nodes")
+		var controllersWg sync.WaitGroup
+
 		for _, pool := range nodePools.Items {
 			if slices.Contains(pool.Spec.Roles, kafkaapi.CONTROLLER_PROCESSROLES) {
-				err = deletePodSet(strimzi, name, pool.Name, namespace)
-				if err != nil {
-					log.Fatal(err)
-				}
+				controllersWg.Add(1)
+				go func() {
+					defer controllersWg.Done()
+					err = deletePodSet(kube, strimzi, name, pool.Name, namespace)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}()
 			}
 		}
+
+		// Wait for controller deletion
+		controllersWg.Wait()
 
 		log.Printf("Kafka cluster %s in namespace %s has been stopped", name, namespace)
 	},

@@ -43,7 +43,10 @@ var continueCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 
-		strimzi := strimziClient(kubeConfig)
+		strimzi, err := strimziClient(kubeConfig)
+		if err != nil {
+			log.Fatalf("Failed to create Strimzi client: %v", err)
+		}
 
 		kafka, err := strimzi.KafkaV1beta2().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
