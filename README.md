@@ -1,6 +1,8 @@
 # Strimzi Shutdown
 
-Strimzi Shutdown is a simple utility to temporarily stop or restart your [Strimzi-based Apache Kafka cluster](https://strimzi.io). 
+_Note: This is not part of the Strimzi CNCF project!_
+
+Strimzi Shutdown is a simple utility to temporarily stop or restart your [Strimzi-based Apache Kafka cluster](https://strimzi.io).
 
 ## How to use Strimzi Shutdown?
 
