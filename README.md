@@ -166,4 +166,9 @@ Note: If you want to deploy the `CronJob` into a different namespace from where 
 
 ### Does Strimzi Shutdown support ZooKeeper-based clusters?
 
-No, Strimzi shutdown currently supports only KRaft-based Apache Kafka clusters. 
+No, Strimzi shutdown currently supports only KRaft-based Apache Kafka clusters.
+
+### Any plans to support other Strimzi resources?
+
+No, the other Strimzi operands, such as Kafka Connect, Mirror Maker, or Bridge are stateless and do not need any special process to be stopped.
+If you want to stop them, you can scale them to `0` by editing the resource and changing the `.spec.replicas` field or using `kubectl scale`.
