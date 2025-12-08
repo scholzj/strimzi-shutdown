@@ -128,7 +128,7 @@ spec:
           serviceAccountName: strimzi-shutdown
           containers:
             - name: strimzi-shutdown
-              image: ghcr.io/scholzj/strimzi-shutdown:0.1.1
+              image: ghcr.io/scholzj/strimzi-shutdown:v0.1.1
               command:
                 - /strimzi-shutdown
                 - stop
@@ -149,7 +149,7 @@ spec:
           serviceAccountName: strimzi-shutdown
           containers:
             - name: strimzi-shutdown
-              image: ghcr.io/scholzj/strimzi-shutdown:0.1.1
+              image: ghcr.io/scholzj/strimzi-shutdown:v0.1.1
               command:
                 - /strimzi-shutdown
                 - continue
