@@ -50,7 +50,7 @@ var continueCmd = &cobra.Command{
 			log.Fatalf("Failed to create Strimzi client: %v", err)
 		}
 
-		kafka, err := strimzi.KafkaV1beta2().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+		kafka, err := strimzi.KafkaV1().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
 			log.Fatalf("Kafka cluster %v in namespace %s not found: %v", name, namespace, err)
 		}
@@ -66,7 +66,7 @@ var continueCmd = &cobra.Command{
 			}
 
 			log.Printf("Unpausing reconciliation of Kafka cluster %s in namespace %s", name, namespace)
-			_, err = strimzi.KafkaV1beta2().Kafkas(namespace).Update(context.TODO(), unpausedKafka, metav1.UpdateOptions{})
+			_, err = strimzi.KafkaV1().Kafkas(namespace).Update(context.TODO(), unpausedKafka, metav1.UpdateOptions{})
 			if err != nil {
 				log.Fatalf("failed to unpause Kafka cluster %s in namespace %s: %v", name, namespace, err)
 			}
