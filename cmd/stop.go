@@ -21,7 +21,7 @@ import (
 	"slices"
 	"sync"
 
-	kafkaapi "github.com/scholzj/strimzi-go/pkg/apis/kafka.strimzi.io/v1beta2"
+	kafkaapi "github.com/scholzj/strimzi-go/pkg/apis/kafka.strimzi.io/v1"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -59,7 +59,7 @@ var stopCmd = &cobra.Command{
 			log.Fatalf("Failed to create Strimzi client: %v", err)
 		}
 
-		kafka, err := strimzi.KafkaV1beta2().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+		kafka, err := strimzi.KafkaV1().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
 			log.Fatalf("Kafka cluster %v in namespace %s not found: %v", name, namespace, err)
 		}
@@ -73,7 +73,7 @@ var stopCmd = &cobra.Command{
 			}
 
 			log.Printf("Pausing reconciliation of Kafka cluster %s in namespace %s", name, namespace)
-			_, err = strimzi.KafkaV1beta2().Kafkas(namespace).Update(context.TODO(), pausedKafka, metav1.UpdateOptions{})
+			_, err = strimzi.KafkaV1().Kafkas(namespace).Update(context.TODO(), pausedKafka, metav1.UpdateOptions{})
 			if err != nil {
 				log.Fatalf("failed to pause Kafka cluster %s in namespace %s: %v", name, namespace, err)
 			}
@@ -127,7 +127,7 @@ var stopCmd = &cobra.Command{
 		// Wait for deployment deletions to complete
 		deploymentWg.Wait()
 
-		nodePools, err := strimzi.KafkaV1beta2().KafkaNodePools(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "strimzi.io/cluster=" + name})
+		nodePools, err := strimzi.KafkaV1().KafkaNodePools(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "strimzi.io/cluster=" + name})
 		if err != nil {
 			log.Fatalf("failed to get KafkaNodePools belonging to Kafka cluster %s in namespace %s: %v", name, namespace, err)
 		}

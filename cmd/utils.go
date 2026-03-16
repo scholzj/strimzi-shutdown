@@ -18,7 +18,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	kafkaapi "github.com/scholzj/strimzi-go/pkg/apis/kafka.strimzi.io/v1beta2"
+	kafkaapi "github.com/scholzj/strimzi-go/pkg/apis/kafka.strimzi.io/v1"
 	strimzi "github.com/scholzj/strimzi-go/pkg/client/clientset/versioned"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -126,7 +126,7 @@ func waitUntilReady(client *strimzi.Clientset, name string, namespace string, ti
 	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 	defer watchContextCancel()
 
-	watcher, err := client.KafkaV1beta2().Kafkas(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})
+	watcher, err := client.KafkaV1().Kafkas(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})
 	if err != nil {
 		panic(err)
 	}
@@ -168,7 +168,7 @@ func waitUntilReconciliationPaused(client *strimzi.Clientset, name string, names
 	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 	defer watchContextCancel()
 
-	watcher, err := client.KafkaV1beta2().Kafkas(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})
+	watcher, err := client.KafkaV1().Kafkas(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})
 	if err != nil {
 		panic(err)
 	}
@@ -210,7 +210,7 @@ func deletePodSet(kube *kubernetes.Clientset, strimzi *strimzi.Clientset, cluste
 
 	propagationPolicy := metav1.DeletePropagationForeground
 
-	err := strimzi.CoreV1beta2().StrimziPodSets(namespace).Delete(context.TODO(), podSetName, metav1.DeleteOptions{PropagationPolicy: &propagationPolicy})
+	err := strimzi.CoreV1().StrimziPodSets(namespace).Delete(context.TODO(), podSetName, metav1.DeleteOptions{PropagationPolicy: &propagationPolicy})
 	if err != nil && !errors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete StrimziPodset %s in namespace %s: %v", podSetName, namespace, err)
 	} else if errors.IsNotFound(err) {
