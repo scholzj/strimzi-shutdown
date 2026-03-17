@@ -42,6 +42,7 @@ type kubeClients interface {
 	CoreV1() corev1client.CoreV1Interface
 }
 
+// Used for testing
 var waitUntilReconciliationPausedFn = waitUntilReconciliationPaused
 var deleteDeploymentFn = deleteDeployment
 var deletePodSetFn = deletePodSet
@@ -54,9 +55,6 @@ func newStopCommand() *cobra.Command {
 		RunE:  runStopCommand,
 	}
 }
-
-// stopCmd represents the stop command
-var stopCmd = newStopCommand()
 
 func runStopCommand(cmd *cobra.Command, args []string) error {
 	opts, err := stopOptionsFromCmd(cmd)
@@ -224,5 +222,5 @@ func runDeleteWorkers(workers []func() error) error {
 }
 
 func init() {
-	rootCmd.AddCommand(stopCmd)
+	rootCmd.AddCommand(newStopCommand())
 }

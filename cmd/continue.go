@@ -32,6 +32,7 @@ type continueOptions struct {
 	timeout    uint32
 }
 
+// Used for testing
 var waitUntilReadyFn = waitUntilReady
 
 func newContinueCommand() *cobra.Command {
@@ -42,9 +43,6 @@ func newContinueCommand() *cobra.Command {
 		RunE:  runContinueCommand,
 	}
 }
-
-// continueCmd represents the continue command
-var continueCmd = newContinueCommand()
 
 func runContinueCommand(cmd *cobra.Command, args []string) error {
 	opts, err := continueOptionsFromCmd(cmd)
@@ -96,20 +94,27 @@ func runContinueWithClients(name string, namespace string, timeout uint32, strim
 		return fmt.Errorf("Kafka cluster %v in namespace %s not found: %w", name, namespace, err)
 	}
 
-	if isReconciliationPaused(kafka) {
-		log.Printf("Reconciliation of Kafka cluster %s in namespace %s will be unpaused", name, namespace)
-		unpausedKafka := kafka.DeepCopy()
+	if isReady(kafka) {
+		log.Printf("Kafka cluster %s in namespace %s is ready and does not need to be restarted", name, namespace)
+		return nil
+	} else {
+		if isReconciliationPaused(kafka) {
+			log.Printf("Reconciliation of Kafka cluster %s in namespace %s will be unpaused", name, namespace)
+			unpausedKafka := kafka.DeepCopy()
 
-		if unpausedKafka.Annotations == nil {
-			unpausedKafka.Annotations = map[string]string{"strimzi.io/pause-reconciliation": "false"}
+			if unpausedKafka.Annotations == nil {
+				unpausedKafka.Annotations = map[string]string{"strimzi.io/pause-reconciliation": "false"}
+			} else {
+				unpausedKafka.Annotations["strimzi.io/pause-reconciliation"] = "false"
+			}
+
+			log.Printf("Unpausing reconciliation of Kafka cluster %s in namespace %s", name, namespace)
+			_, err = strimziClient.KafkaV1().Kafkas(namespace).Update(context.TODO(), unpausedKafka, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to unpause Kafka cluster %s in namespace %s: %w", name, namespace, err)
+			}
 		} else {
-			unpausedKafka.Annotations["strimzi.io/pause-reconciliation"] = "false"
-		}
-
-		log.Printf("Unpausing reconciliation of Kafka cluster %s in namespace %s", name, namespace)
-		_, err = strimziClient.KafkaV1().Kafkas(namespace).Update(context.TODO(), unpausedKafka, metav1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to unpause Kafka cluster %s in namespace %s: %w", name, namespace, err)
+			log.Printf("Kafka cluster %s in namespace %s does not have paused reconciliation, but is not ready.", name, namespace)
 		}
 
 		log.Printf("Waiting for Kafka cluster %s in namespace %s to get ready.", name, namespace)
@@ -118,26 +123,11 @@ func runContinueWithClients(name string, namespace string, timeout uint32, strim
 			return err
 		}
 
-		log.Printf("Kafka cluster %s in namespace %s has been restarted and should be ready", name, namespace)
+		log.Printf("Kafka cluster %s in namespace %s is ready", name, namespace)
 		return nil
 	}
-
-	if isReady(kafka) {
-		log.Printf("Kafka cluster %s in namespace %s is ready and does not need to be restarted", name, namespace)
-		return nil
-	}
-
-	log.Printf("Waiting for Kafka cluster %s in namespace %s does not have paused reconciliation, but is not ready.", name, namespace)
-	log.Printf("Waiting for Kafka cluster %s in namespace %s to get ready.", name, namespace)
-	_, err = waitUntilReadyFn(strimziClient, name, namespace, timeout)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("Kafka cluster %s in namespace %s has been restarted and should be ready", name, namespace)
-	return nil
 }
 
 func init() {
-	rootCmd.AddCommand(continueCmd)
+	rootCmd.AddCommand(newContinueCommand())
 }
