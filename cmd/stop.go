@@ -95,7 +95,7 @@ var stopCmd = &cobra.Command{
 			deploymentWg.Add(1)
 			go func() {
 				defer deploymentWg.Done()
-				err = deleteDeployment(kube, name, "cruise-control", namespace, timeout)
+				err = deleteDeployment(kube.AppsV1(), name, "cruise-control", namespace, timeout)
 				if err != nil {
 					log.Fatalf("Failed to delete Cruise Control deployment: %v", err)
 				}
@@ -106,7 +106,7 @@ var stopCmd = &cobra.Command{
 			deploymentWg.Add(1)
 			go func() {
 				defer deploymentWg.Done()
-				err = deleteDeployment(kube, name, "kafka-exporter", namespace, timeout)
+				err = deleteDeployment(kube.AppsV1(), name, "kafka-exporter", namespace, timeout)
 				if err != nil {
 					log.Fatalf("Failed to delete Kafka Exporter deployment: %v", err)
 				}
@@ -117,7 +117,7 @@ var stopCmd = &cobra.Command{
 			deploymentWg.Add(1)
 			go func() {
 				defer deploymentWg.Done()
-				err = deleteDeployment(kube, name, "entity-operator", namespace, timeout)
+				err = deleteDeployment(kube.AppsV1(), name, "entity-operator", namespace, timeout)
 				if err != nil {
 					log.Fatalf("Failed to delete Entity Operator deployment: %v", err)
 				}
@@ -140,7 +140,7 @@ var stopCmd = &cobra.Command{
 				brokersWg.Add(1)
 				go func() {
 					defer brokersWg.Done()
-					err = deletePodSet(kube, strimzi, name, pool.Name, namespace, timeout)
+					err = deletePodSet(kube.CoreV1(), strimzi, name, pool.Name, namespace, timeout)
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -159,7 +159,7 @@ var stopCmd = &cobra.Command{
 				controllersWg.Add(1)
 				go func() {
 					defer controllersWg.Done()
-					err = deletePodSet(kube, strimzi, name, pool.Name, namespace, timeout)
+					err = deletePodSet(kube.CoreV1(), strimzi, name, pool.Name, namespace, timeout)
 					if err != nil {
 						log.Fatal(err)
 					}
