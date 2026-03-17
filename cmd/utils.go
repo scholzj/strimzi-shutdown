@@ -25,6 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
@@ -204,7 +206,7 @@ func isReconciliationPaused(k *kafkaapi.Kafka) bool {
 	}
 }
 
-func deletePodSet(kube *kubernetes.Clientset, strimzi *strimzi.Clientset, clusterName string, poolName string, namespace string, timeout uint32) error {
+func deletePodSet(kube corev1client.CoreV1Interface, strimzi *strimzi.Clientset, clusterName string, poolName string, namespace string, timeout uint32) error {
 	podSetName := clusterName + "-" + poolName
 	log.Printf("Deleting StrimziPodSet %s for KafkaNodePool %s", podSetName, poolName)
 
@@ -221,7 +223,7 @@ func deletePodSet(kube *kubernetes.Clientset, strimzi *strimzi.Clientset, cluste
 	}
 }
 
-func waitForPodSetPodsDeletion(kube *kubernetes.Clientset, clusterName string, poolName string, podSetName string, namespace string, timeout uint32) error {
+func waitForPodSetPodsDeletion(kube corev1client.CoreV1Interface, clusterName string, poolName string, podSetName string, namespace string, timeout uint32) error {
 	// The Pod owner references to StrimziPodSets do not set `blockOwnerDeletion: true`.
 	// As a result, foreground deletion of the StrimziPodSet does not wait for Pod
 	// deletion and we need to check the Pod deletion separately.
@@ -236,7 +238,7 @@ func waitForPodSetPodsDeletion(kube *kubernetes.Clientset, clusterName string, p
 	go func() {
 		for {
 			labelSelector := fmt.Sprintf("strimzi.io/cluster=%s,strimzi.io/pool-name=%s", clusterName, poolName)
-			pods, err := kube.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: labelSelector})
+			pods, err := kube.Pods(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: labelSelector})
 			if err != nil {
 				podsDeletedError <- err
 				break
@@ -260,13 +262,13 @@ func waitForPodSetPodsDeletion(kube *kubernetes.Clientset, clusterName string, p
 	}
 }
 
-func deleteDeployment(kube *kubernetes.Clientset, clusterName string, componentName string, namespace string, timeout uint32) error {
+func deleteDeployment(kube appsv1client.AppsV1Interface, clusterName string, componentName string, namespace string, timeout uint32) error {
 	deploymentName := clusterName + "-" + componentName
 	log.Printf("Deleting Deployment %s in namespace %s", deploymentName, namespace)
 
 	propagationPolicy := metav1.DeletePropagationForeground
 
-	err := kube.AppsV1().Deployments(namespace).Delete(context.TODO(), deploymentName, metav1.DeleteOptions{PropagationPolicy: &propagationPolicy})
+	err := kube.Deployments(namespace).Delete(context.TODO(), deploymentName, metav1.DeleteOptions{PropagationPolicy: &propagationPolicy})
 	if err != nil && !errors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete Deployment %s in namespace %s: %v", deploymentName, namespace, err)
 	} else if errors.IsNotFound(err) {
@@ -276,11 +278,11 @@ func deleteDeployment(kube *kubernetes.Clientset, clusterName string, componentN
 	}
 }
 
-func waitForDeploymentDeletion(kube *kubernetes.Clientset, name string, namespace string, timeout uint32) error {
+func waitForDeploymentDeletion(kube appsv1client.AppsV1Interface, name string, namespace string, timeout uint32) error {
 	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 	defer watchContextCancel()
 
-	watcher, err := kube.AppsV1().Deployments(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})
+	watcher, err := kube.Deployments(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})
 	if err != nil {
 		return err
 	}
