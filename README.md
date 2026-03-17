@@ -128,7 +128,7 @@ spec:
           serviceAccountName: strimzi-shutdown
           containers:
             - name: strimzi-shutdown
-              image: ghcr.io/scholzj/strimzi-shutdown:v0.1.1
+              image: ghcr.io/scholzj/strimzi-shutdown:v0.2.0
               command:
                 - /strimzi-shutdown
                 - stop
@@ -149,7 +149,7 @@ spec:
           serviceAccountName: strimzi-shutdown
           containers:
             - name: strimzi-shutdown
-              image: ghcr.io/scholzj/strimzi-shutdown:v0.1.1
+              image: ghcr.io/scholzj/strimzi-shutdown:v0.2.0
               command:
                 - /strimzi-shutdown
                 - continue
@@ -163,6 +163,11 @@ And it will start the same Kafka cluster again every Monday to Friday at 8 am.
 Note: If you want to deploy the `CronJob` into a different namespace from where the Kafka cluster is running, you would need to adjust the RBAC resources accordingly and use the `--namespace` option. 
 
 ## Frequently Asked Questions
+
+### Which Strimzi API does Strimzi shutdown support?
+
+From the version 0.2.0, Strimzi shutdoen supports the Strimzi `v1` API and works with Strimzi 0.49.0 and newer.
+The versions 0.1.0 and 0.1.1 use the older Strimzi `v1beta2` API and should work with Strimzi 0.51.0 and older.
 
 ### Does Strimzi Shutdown support ZooKeeper-based clusters?
 
