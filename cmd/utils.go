@@ -18,6 +18,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"time"
+
 	kafkaapi "github.com/scholzj/strimzi-go/pkg/apis/kafka.strimzi.io/v1"
 	strimzi "github.com/scholzj/strimzi-go/pkg/client/clientset/versioned"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -30,10 +35,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
-	"log"
-	"os"
-	"path/filepath"
-	"time"
 )
 
 func kubeClient(kubeConfig *rest.Config) (*kubernetes.Clientset, error) {
