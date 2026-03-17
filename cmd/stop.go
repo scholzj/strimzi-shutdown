@@ -17,173 +17,210 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"slices"
 	"sync"
 
 	kafkaapi "github.com/scholzj/strimzi-go/pkg/apis/kafka.strimzi.io/v1"
+	strimzi "github.com/scholzj/strimzi-go/pkg/client/clientset/versioned"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 )
 
-// stopCmd represents the stop command
-var stopCmd = &cobra.Command{
-	Use:   "stop",
-	Short: "Stops the Kafka cluster",
-	Long:  "Stops the Kafka cluster.",
-	Run: func(cmd *cobra.Command, args []string) {
-		timeout, _ := cmd.Flags().GetUint32("timeout")
+type stopOptions struct {
+	name       string
+	namespace  string
+	kubeconfig string
+	timeout    uint32
+}
 
-		name := cmd.Flag("name").Value.String()
-		if name == "" {
-			log.Fatal("--name option is required")
-		}
+type kubeClients interface {
+	AppsV1() appsv1client.AppsV1Interface
+	CoreV1() corev1client.CoreV1Interface
+}
 
-		kubeConfig, kubeConfigNamespace, err := kubeConfigAndNamespace(cmd.Flag("kubeconfig").Value.String())
-		if err != nil {
-			log.Fatal(err)
-		}
+// Used for testing
+var waitUntilReconciliationPausedFn = waitUntilReconciliationPaused
+var deleteDeploymentFn = deleteDeployment
+var deletePodSetFn = deletePodSet
 
-		namespace, err := determineNamespace(cmd.Flag("namespace").Value.String(), kubeConfigNamespace)
-		if err != nil {
-			log.Fatal(err)
-		}
+func newStopCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop",
+		Short: "Stops the Kafka cluster",
+		Long:  "Stops the Kafka cluster.",
+		RunE:  runStopCommand,
+	}
+}
 
-		kube, err := kubeClient(kubeConfig)
-		if err != nil {
-			log.Fatalf("Failed to create Kubernetes client: %v", err)
-		}
+func runStopCommand(cmd *cobra.Command, args []string) error {
+	opts, err := stopOptionsFromCmd(cmd)
+	if err != nil {
+		return err
+	}
 
-		strimzi, err := strimziClient(kubeConfig)
-		if err != nil {
-			log.Fatalf("Failed to create Strimzi client: %v", err)
-		}
+	return runStop(opts)
+}
 
-		kafka, err := strimzi.KafkaV1().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
-		if err != nil {
-			log.Fatalf("Kafka cluster %v in namespace %s not found: %v", name, namespace, err)
-		}
+func stopOptionsFromCmd(cmd *cobra.Command) (stopOptions, error) {
+	timeout, _ := cmd.Flags().GetUint32("timeout")
 
-		if !isReconciliationPaused(kafka) {
-			pausedKafka := kafka.DeepCopy()
-			if pausedKafka.Annotations == nil {
-				pausedKafka.Annotations = map[string]string{"strimzi.io/pause-reconciliation": "true"}
-			} else {
-				pausedKafka.Annotations["strimzi.io/pause-reconciliation"] = "true"
-			}
+	name := cmd.Flag("name").Value.String()
+	if name == "" {
+		return stopOptions{}, fmt.Errorf("--name option is required")
+	}
 
-			log.Printf("Pausing reconciliation of Kafka cluster %s in namespace %s", name, namespace)
-			_, err = strimzi.KafkaV1().Kafkas(namespace).Update(context.TODO(), pausedKafka, metav1.UpdateOptions{})
-			if err != nil {
-				log.Fatalf("failed to pause Kafka cluster %s in namespace %s: %v", name, namespace, err)
-			}
+	return stopOptions{
+		name:       name,
+		namespace:  cmd.Flag("namespace").Value.String(),
+		kubeconfig: cmd.Flag("kubeconfig").Value.String(),
+		timeout:    timeout,
+	}, nil
+}
 
-			log.Printf("Waiting for Kafka cluster %s in namespace %s reconciliation to be paused", name, namespace)
-			_, err = waitUntilReconciliationPaused(strimzi, name, namespace, timeout)
-			if err != nil {
-				log.Fatal(err)
-			}
+func runStop(opts stopOptions) error {
+	kubeConfig, kubeConfigNamespace, err := kubeConfigAndNamespace(opts.kubeconfig)
+	if err != nil {
+		return err
+	}
 
-			log.Printf("Reconciliation of Kafka cluster %s in namespace %s is paused", name, namespace)
+	namespace, err := determineNamespace(opts.namespace, kubeConfigNamespace)
+	if err != nil {
+		return err
+	}
+
+	kube, err := kubeClient(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	strimziClient, err := strimziClient(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create Strimzi client: %w", err)
+	}
+
+	return runStopWithClients(opts.name, namespace, opts.timeout, kube, strimziClient)
+}
+
+func runStopWithClients(name string, namespace string, timeout uint32, kube kubeClients, strimziClient strimzi.Interface) error {
+	kafka, err := strimziClient.KafkaV1().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("Kafka cluster %v in namespace %s not found: %w", name, namespace, err)
+	}
+
+	if !isReconciliationPaused(kafka) {
+		pausedKafka := kafka.DeepCopy()
+		if pausedKafka.Annotations == nil {
+			pausedKafka.Annotations = map[string]string{"strimzi.io/pause-reconciliation": "true"}
 		} else {
-			log.Printf("Kafka cluster %s in namespace %s has already paused reconciliation", name, namespace)
+			pausedKafka.Annotations["strimzi.io/pause-reconciliation"] = "true"
 		}
 
-		var deploymentWg sync.WaitGroup
-
-		if kafka.Spec.CruiseControl != nil {
-			deploymentWg.Add(1)
-			go func() {
-				defer deploymentWg.Done()
-				err = deleteDeployment(kube.AppsV1(), name, "cruise-control", namespace, timeout)
-				if err != nil {
-					log.Fatalf("Failed to delete Cruise Control deployment: %v", err)
-				}
-			}()
-		}
-
-		if kafka.Spec.KafkaExporter != nil {
-			deploymentWg.Add(1)
-			go func() {
-				defer deploymentWg.Done()
-				err = deleteDeployment(kube.AppsV1(), name, "kafka-exporter", namespace, timeout)
-				if err != nil {
-					log.Fatalf("Failed to delete Kafka Exporter deployment: %v", err)
-				}
-			}()
-		}
-
-		if kafka.Spec.EntityOperator != nil {
-			deploymentWg.Add(1)
-			go func() {
-				defer deploymentWg.Done()
-				err = deleteDeployment(kube.AppsV1(), name, "entity-operator", namespace, timeout)
-				if err != nil {
-					log.Fatalf("Failed to delete Entity Operator deployment: %v", err)
-				}
-			}()
-		}
-
-		// Wait for deployment deletions to complete
-		deploymentWg.Wait()
-
-		nodePools, err := strimzi.KafkaV1().KafkaNodePools(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "strimzi.io/cluster=" + name})
+		log.Printf("Pausing reconciliation of Kafka cluster %s in namespace %s", name, namespace)
+		_, err = strimziClient.KafkaV1().Kafkas(namespace).Update(context.TODO(), pausedKafka, metav1.UpdateOptions{})
 		if err != nil {
-			log.Fatalf("failed to get KafkaNodePools belonging to Kafka cluster %s in namespace %s: %v", name, namespace, err)
+			return fmt.Errorf("failed to pause Kafka cluster %s in namespace %s: %w", name, namespace, err)
 		}
 
-		log.Printf("Stopping all Kafka nodes with broker role only")
-		var brokersWg sync.WaitGroup
+		log.Printf("Waiting for Kafka cluster %s in namespace %s reconciliation to be paused", name, namespace)
+		_, err = waitUntilReconciliationPausedFn(strimziClient, name, namespace, timeout)
+		if err != nil {
+			return err
+		}
 
-		for _, pool := range nodePools.Items {
-			if !slices.Contains(pool.Spec.Roles, kafkaapi.CONTROLLER_PROCESSROLES) {
-				brokersWg.Add(1)
-				go func() {
-					defer brokersWg.Done()
-					err = deletePodSet(kube.CoreV1(), strimzi, name, pool.Name, namespace, timeout)
-					if err != nil {
-						log.Fatal(err)
-					}
-				}()
+		log.Printf("Reconciliation of Kafka cluster %s in namespace %s is paused", name, namespace)
+	} else {
+		log.Printf("Kafka cluster %s in namespace %s has already paused reconciliation", name, namespace)
+	}
+
+	var deploymentDeletes []func() error
+	if kafka.Spec.CruiseControl != nil {
+		deploymentDeletes = append(deploymentDeletes, func() error {
+			return deleteDeploymentFn(kube.AppsV1(), name, "cruise-control", namespace, timeout)
+		})
+	}
+	if kafka.Spec.KafkaExporter != nil {
+		deploymentDeletes = append(deploymentDeletes, func() error {
+			return deleteDeploymentFn(kube.AppsV1(), name, "kafka-exporter", namespace, timeout)
+		})
+	}
+	if kafka.Spec.EntityOperator != nil {
+		deploymentDeletes = append(deploymentDeletes, func() error {
+			return deleteDeploymentFn(kube.AppsV1(), name, "entity-operator", namespace, timeout)
+		})
+	}
+
+	if err = runDeleteWorkers(deploymentDeletes); err != nil {
+		return err
+	}
+
+	nodePools, err := strimziClient.KafkaV1().KafkaNodePools(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: "strimzi.io/cluster=" + name})
+	if err != nil {
+		return fmt.Errorf("failed to get KafkaNodePools belonging to Kafka cluster %s in namespace %s: %w", name, namespace, err)
+	}
+
+	log.Printf("Stopping all Kafka nodes with broker role only")
+	var brokerDeletes []func() error
+	for _, pool := range nodePools.Items {
+		if !slices.Contains(pool.Spec.Roles, kafkaapi.CONTROLLER_PROCESSROLES) {
+			poolName := pool.Name
+			brokerDeletes = append(brokerDeletes, func() error {
+				return deletePodSetFn(kube.CoreV1(), strimziClient, name, poolName, namespace, timeout)
+			})
+		}
+	}
+	if err = runDeleteWorkers(brokerDeletes); err != nil {
+		return err
+	}
+
+	log.Printf("Stopping all remaining Kafka nodes")
+	var controllerDeletes []func() error
+	for _, pool := range nodePools.Items {
+		if slices.Contains(pool.Spec.Roles, kafkaapi.CONTROLLER_PROCESSROLES) {
+			poolName := pool.Name
+			controllerDeletes = append(controllerDeletes, func() error {
+				return deletePodSetFn(kube.CoreV1(), strimziClient, name, poolName, namespace, timeout)
+			})
+		}
+	}
+	if err = runDeleteWorkers(controllerDeletes); err != nil {
+		return err
+	}
+
+	log.Printf("Kafka cluster %s in namespace %s has been stopped", name, namespace)
+	return nil
+}
+
+func runDeleteWorkers(workers []func() error) error {
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(workers))
+
+	for _, worker := range workers {
+		worker := worker
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := worker(); err != nil {
+				errCh <- err
 			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			return err
 		}
+	}
 
-		// Wait for broker-only nodes to be removed
-		brokersWg.Wait()
-
-		log.Printf("Stopping all remaining Kafka nodes")
-		var controllersWg sync.WaitGroup
-
-		for _, pool := range nodePools.Items {
-			if slices.Contains(pool.Spec.Roles, kafkaapi.CONTROLLER_PROCESSROLES) {
-				controllersWg.Add(1)
-				go func() {
-					defer controllersWg.Done()
-					err = deletePodSet(kube.CoreV1(), strimzi, name, pool.Name, namespace, timeout)
-					if err != nil {
-						log.Fatal(err)
-					}
-				}()
-			}
-		}
-
-		// Wait for controller deletion
-		controllersWg.Wait()
-
-		log.Printf("Kafka cluster %s in namespace %s has been stopped", name, namespace)
-	},
+	return nil
 }
 
 func init() {
-	rootCmd.AddCommand(stopCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// stopCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// stopCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.AddCommand(newStopCommand())
 }
