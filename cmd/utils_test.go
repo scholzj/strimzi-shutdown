@@ -21,7 +21,9 @@ import (
 	"testing"
 	"time"
 
+	coreapi "github.com/scholzj/strimzi-go/pkg/apis/core.strimzi.io/v1"
 	kafkaapi "github.com/scholzj/strimzi-go/pkg/apis/kafka.strimzi.io/v1"
+	strimzifake "github.com/scholzj/strimzi-go/pkg/client/clientset/versioned/fake"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -288,6 +290,125 @@ func TestWaitForDeploymentDeletion_ReturnsErrorWhenWatchFails(t *testing.T) {
 	err := waitForDeploymentDeletion(kube.AppsV1(), "my-cluster-entity-operator", "ns", 10)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+}
+
+func TestDeleteDeployment_ReturnsNilWhenDeploymentNotFound(t *testing.T) {
+	kube := k8sfake.NewSimpleClientset()
+
+	err := deleteDeployment(kube.AppsV1(), "my-cluster", "entity-operator", "ns", 10)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestDeleteDeployment_ReturnsWrappedErrorWhenDeleteFails(t *testing.T) {
+	kube := k8sfake.NewSimpleClientset()
+	wantErr := errors.New("delete failed")
+
+	kube.PrependReactor("delete", "deployments", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, wantErr
+	})
+
+	err := deleteDeployment(kube.AppsV1(), "my-cluster", "entity-operator", "ns", 10)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "failed to delete Deployment my-cluster-entity-operator in namespace ns") {
+		t.Fatalf("expected wrapped delete error, got %v", err)
+	}
+
+	if !strings.Contains(err.Error(), wantErr.Error()) {
+		t.Fatalf("expected original error in %v", err)
+	}
+}
+
+func TestDeleteDeployment_WaitsForDeletionAfterSuccessfulDelete(t *testing.T) {
+	kube := k8sfake.NewSimpleClientset(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "my-cluster-entity-operator", Namespace: "ns"}})
+	fakeWatch := watch.NewFake()
+
+	kube.PrependWatchReactor("deployments", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, fakeWatch, nil
+	})
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- deleteDeployment(kube.AppsV1(), "my-cluster", "entity-operator", "ns", 100)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	fakeWatch.Delete(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "my-cluster-entity-operator", Namespace: "ns"}})
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for deleteDeployment result")
+	}
+}
+
+func TestDeletePodSet_ReturnsNilWhenPodSetNotFound(t *testing.T) {
+	kube := k8sfake.NewSimpleClientset()
+	strimziClient := strimzifake.NewSimpleClientset()
+
+	err := deletePodSet(kube.CoreV1(), strimziClient, "my-cluster", "pool-a", "ns", 10)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestDeletePodSet_ReturnsWrappedErrorWhenDeleteFails(t *testing.T) {
+	kube := k8sfake.NewSimpleClientset()
+	strimziClient := strimzifake.NewSimpleClientset()
+	wantErr := errors.New("delete failed")
+
+	strimziClient.PrependReactor("delete", "strimzipodsets", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, wantErr
+	})
+
+	err := deletePodSet(kube.CoreV1(), strimziClient, "my-cluster", "pool-a", "ns", 10)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "failed to delete StrimziPodset my-cluster-pool-a in namespace ns") {
+		t.Fatalf("expected wrapped delete error, got %v", err)
+	}
+
+	if !strings.Contains(err.Error(), wantErr.Error()) {
+		t.Fatalf("expected original error in %v", err)
+	}
+}
+
+func TestDeletePodSet_WaitsForPodsToDisappearAfterDelete(t *testing.T) {
+	kube := k8sfake.NewSimpleClientset(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod-0",
+			Namespace: "ns",
+			Labels: map[string]string{
+				"strimzi.io/cluster":   "my-cluster",
+				"strimzi.io/pool-name": "pool-a",
+			},
+		},
+	})
+	strimziClient := strimzifake.NewSimpleClientset(&coreapi.StrimziPodSet{ObjectMeta: metav1.ObjectMeta{Name: "my-cluster-pool-a", Namespace: "ns"}})
+
+	listCalls := 0
+	kube.PrependReactor("list", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		listCalls++
+		if listCalls == 1 {
+			return true, &corev1.PodList{Items: []corev1.Pod{{ObjectMeta: metav1.ObjectMeta{Name: "pod-0", Namespace: "ns"}}}}, nil
+		}
+
+		return true, &corev1.PodList{}, nil
+	})
+
+	err := deletePodSet(kube.CoreV1(), strimziClient, "my-cluster", "pool-a", "ns", 1500)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
 }
 

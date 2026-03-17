@@ -206,7 +206,7 @@ func isReconciliationPaused(k *kafkaapi.Kafka) bool {
 	}
 }
 
-func deletePodSet(kube corev1client.CoreV1Interface, strimzi *strimzi.Clientset, clusterName string, poolName string, namespace string, timeout uint32) error {
+func deletePodSet(kube corev1client.CoreV1Interface, strimzi strimzi.Interface, clusterName string, poolName string, namespace string, timeout uint32) error {
 	podSetName := clusterName + "-" + poolName
 	log.Printf("Deleting StrimziPodSet %s for KafkaNodePool %s", podSetName, poolName)
 
