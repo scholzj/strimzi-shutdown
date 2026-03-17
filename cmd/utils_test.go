@@ -157,6 +157,150 @@ func TestIsReconciliationPaused(t *testing.T) {
 	}
 }
 
+func TestWaitUntilReady_ReturnsTrueWhenReadyEventArrives(t *testing.T) {
+	strimziClient := strimzifake.NewSimpleClientset()
+	fakeWatch := watch.NewFake()
+
+	strimziClient.PrependWatchReactor("kafkas", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, fakeWatch, nil
+	})
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := waitUntilReady(strimziClient, "my-cluster", "ns", 100)
+		errCh <- err
+	}()
+
+	fakeWatch.Modify(newKafkaResource("my-cluster", "ns", 3, 3, nil, newCondition("Ready", metav1.ConditionTrue)))
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for ready result")
+	}
+}
+
+func TestWaitUntilReady_IgnoresNonReadyEvents(t *testing.T) {
+	strimziClient := strimzifake.NewSimpleClientset()
+	fakeWatch := watch.NewFake()
+
+	strimziClient.PrependWatchReactor("kafkas", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, fakeWatch, nil
+	})
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := waitUntilReady(strimziClient, "my-cluster", "ns", 100)
+		errCh <- err
+	}()
+
+	fakeWatch.Modify(newKafkaResource("my-cluster", "ns", 3, 3, nil, newCondition("Ready", metav1.ConditionFalse)))
+	fakeWatch.Modify(newKafkaResource("my-cluster", "ns", 3, 3, nil, newCondition("Ready", metav1.ConditionTrue)))
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for ready result")
+	}
+}
+
+func TestWaitUntilReady_ReturnsErrorOnTimeout(t *testing.T) {
+	strimziClient := strimzifake.NewSimpleClientset()
+	fakeWatch := watch.NewFake()
+	defer fakeWatch.Stop()
+
+	strimziClient.PrependWatchReactor("kafkas", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, fakeWatch, nil
+	})
+
+	_, err := waitUntilReady(strimziClient, "my-cluster", "ns", 10)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "timed out waiting for the Kafka cluster my-cluster in namespace ns to be ready") {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+}
+
+func TestWaitUntilReconciliationPaused_ReturnsTrueWhenPausedEventArrives(t *testing.T) {
+	strimziClient := strimzifake.NewSimpleClientset()
+	fakeWatch := watch.NewFake()
+
+	strimziClient.PrependWatchReactor("kafkas", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, fakeWatch, nil
+	})
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := waitUntilReconciliationPaused(strimziClient, "my-cluster", "ns", 100)
+		errCh <- err
+	}()
+
+	fakeWatch.Modify(newKafkaResource("my-cluster", "ns", 3, 3, nil, newCondition("ReconciliationPaused", metav1.ConditionTrue)))
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for reconciliation pause result")
+	}
+}
+
+func TestWaitUntilReconciliationPaused_IgnoresNonPausedEvents(t *testing.T) {
+	strimziClient := strimzifake.NewSimpleClientset()
+	fakeWatch := watch.NewFake()
+
+	strimziClient.PrependWatchReactor("kafkas", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, fakeWatch, nil
+	})
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := waitUntilReconciliationPaused(strimziClient, "my-cluster", "ns", 100)
+		errCh <- err
+	}()
+
+	fakeWatch.Modify(newKafkaResource("my-cluster", "ns", 3, 3, nil, newCondition("ReconciliationPaused", metav1.ConditionFalse)))
+	fakeWatch.Modify(newKafkaResource("my-cluster", "ns", 3, 3, nil, newCondition("ReconciliationPaused", metav1.ConditionTrue)))
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for reconciliation pause result")
+	}
+}
+
+func TestWaitUntilReconciliationPaused_ReturnsErrorOnTimeout(t *testing.T) {
+	strimziClient := strimzifake.NewSimpleClientset()
+	fakeWatch := watch.NewFake()
+	defer fakeWatch.Stop()
+
+	strimziClient.PrependWatchReactor("kafkas", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, fakeWatch, nil
+	})
+
+	_, err := waitUntilReconciliationPaused(strimziClient, "my-cluster", "ns", 10)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "timed out waiting for the Kafka cluster my-cluster in namespace ns to be paused") {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+}
+
 func TestWaitForPodSetPodsDeletion_ReturnsNilWhenNoPodsExist(t *testing.T) {
 	kube := k8sfake.NewSimpleClientset()
 
