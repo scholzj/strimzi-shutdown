@@ -124,7 +124,7 @@ func determineNamespace(namespaceOption string, kubeConfigNamespace string) (str
 	}
 }
 
-func waitUntilReady(client *strimzi.Clientset, name string, namespace string, timeout uint32) (bool, error) {
+func waitUntilReady(client strimzi.Interface, name string, namespace string, timeout uint32) (bool, error) {
 	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 	defer watchContextCancel()
 
@@ -166,7 +166,7 @@ func isReady(k *kafkaapi.Kafka) bool {
 	}
 }
 
-func waitUntilReconciliationPaused(client *strimzi.Clientset, name string, namespace string, timeout uint32) (bool, error) {
+func waitUntilReconciliationPaused(client strimzi.Interface, name string, namespace string, timeout uint32) (bool, error) {
 	watchContext, watchContextCancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(timeout))
 	defer watchContextCancel()
 

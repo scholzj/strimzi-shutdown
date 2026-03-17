@@ -17,92 +17,125 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"log"
+
+	strimzi "github.com/scholzj/strimzi-go/pkg/client/clientset/versioned"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"log"
 )
 
+type continueOptions struct {
+	name       string
+	namespace  string
+	kubeconfig string
+	timeout    uint32
+}
+
+func newContinueCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "continue",
+		Short: "Restarts the Kafka cluster",
+		Long:  "Restarts the Kafka cluster.",
+		RunE:  runContinueCommand,
+	}
+}
+
 // continueCmd represents the continue command
-var continueCmd = &cobra.Command{
-	Use:   "continue",
-	Short: "Restarts the Kafka cluster",
-	Long:  "Restarts the Kafka cluster.",
-	Run: func(cmd *cobra.Command, args []string) {
-		timeout, _ := cmd.Flags().GetUint32("timeout")
+var continueCmd = newContinueCommand()
 
-		name := cmd.Flag("name").Value.String()
-		if name == "" {
-			log.Fatal("--name option is required")
-		}
+func runContinueCommand(cmd *cobra.Command, args []string) error {
+	opts, err := continueOptionsFromCmd(cmd)
+	if err != nil {
+		return err
+	}
 
-		kubeConfig, kubeConfigNamespace, err := kubeConfigAndNamespace(cmd.Flag("kubeconfig").Value.String())
-		if err != nil {
-			log.Fatal(err)
-		}
+	return runContinue(opts)
+}
 
-		namespace, err := determineNamespace(cmd.Flag("namespace").Value.String(), kubeConfigNamespace)
-		if err != nil {
-			log.Fatal(err)
-		}
+func continueOptionsFromCmd(cmd *cobra.Command) (continueOptions, error) {
+	timeout, _ := cmd.Flags().GetUint32("timeout")
 
-		strimzi, err := strimziClient(kubeConfig)
-		if err != nil {
-			log.Fatalf("Failed to create Strimzi client: %v", err)
-		}
+	name := cmd.Flag("name").Value.String()
+	if name == "" {
+		return continueOptions{}, fmt.Errorf("--name option is required")
+	}
 
-		kafka, err := strimzi.KafkaV1().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
-		if err != nil {
-			log.Fatalf("Kafka cluster %v in namespace %s not found: %v", name, namespace, err)
-		}
+	return continueOptions{
+		name:       name,
+		namespace:  cmd.Flag("namespace").Value.String(),
+		kubeconfig: cmd.Flag("kubeconfig").Value.String(),
+		timeout:    timeout,
+	}, nil
+}
 
-		if isReconciliationPaused(kafka) {
-			log.Printf("Reconciliation of Kafka cluster %s in namespace %s will be unpaused", name, namespace)
-			unpausedKafka := kafka.DeepCopy()
+func runContinue(opts continueOptions) error {
+	kubeConfig, kubeConfigNamespace, err := loadKubeConfigAndNamespace(opts.kubeconfig)
+	if err != nil {
+		return err
+	}
 
-			if unpausedKafka.Annotations == nil {
-				unpausedKafka.Annotations = map[string]string{"strimzi.io/pause-reconciliation": "false"}
-			} else {
-				unpausedKafka.Annotations["strimzi.io/pause-reconciliation"] = "false"
-			}
+	namespace, err := determineNamespace(opts.namespace, kubeConfigNamespace)
+	if err != nil {
+		return err
+	}
 
-			log.Printf("Unpausing reconciliation of Kafka cluster %s in namespace %s", name, namespace)
-			_, err = strimzi.KafkaV1().Kafkas(namespace).Update(context.TODO(), unpausedKafka, metav1.UpdateOptions{})
-			if err != nil {
-				log.Fatalf("failed to unpause Kafka cluster %s in namespace %s: %v", name, namespace, err)
-			}
+	strimziClient, err := newStrimziClients(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create Strimzi client: %w", err)
+	}
 
-			log.Printf("Waiting for Kafka cluster %s in namespace %s to get ready.", name, namespace)
-			_, err = waitUntilReady(strimzi, name, namespace, timeout)
-			if err != nil {
-				log.Fatal(err)
-			}
+	return runContinueWithClients(opts.name, namespace, opts.timeout, strimziClient)
+}
 
-			log.Printf("Kafka cluster %s in namespace %s has been restarted and should be ready", name, namespace)
-		} else if isReady(kafka) {
-			log.Printf("Kafka cluster %s in namespace %s is ready and does not need to be restarted", name, namespace)
+func runContinueWithClients(name string, namespace string, timeout uint32, strimziClient strimzi.Interface) error {
+	kafka, err := strimziClient.KafkaV1().Kafkas(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("Kafka cluster %v in namespace %s not found: %w", name, namespace, err)
+	}
+
+	if isReconciliationPaused(kafka) {
+		log.Printf("Reconciliation of Kafka cluster %s in namespace %s will be unpaused", name, namespace)
+		unpausedKafka := kafka.DeepCopy()
+
+		if unpausedKafka.Annotations == nil {
+			unpausedKafka.Annotations = map[string]string{"strimzi.io/pause-reconciliation": "false"}
 		} else {
-			log.Printf("Waiting for Kafka cluster %s in namespace %s does not have paused reconciliation, but is not ready.", name, namespace)
-			log.Printf("Waiting for Kafka cluster %s in namespace %s to get ready.", name, namespace)
-			_, err = waitUntilReady(strimzi, name, namespace, timeout)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			log.Printf("Kafka cluster %s in namespace %s has been restarted and should be ready", name, namespace)
+			unpausedKafka.Annotations["strimzi.io/pause-reconciliation"] = "false"
 		}
-	},
+
+		log.Printf("Unpausing reconciliation of Kafka cluster %s in namespace %s", name, namespace)
+		_, err = strimziClient.KafkaV1().Kafkas(namespace).Update(context.TODO(), unpausedKafka, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to unpause Kafka cluster %s in namespace %s: %w", name, namespace, err)
+		}
+
+		log.Printf("Waiting for Kafka cluster %s in namespace %s to get ready.", name, namespace)
+		_, err = waitUntilReadyFn(strimziClient, name, namespace, timeout)
+		if err != nil {
+			return err
+		}
+
+		log.Printf("Kafka cluster %s in namespace %s has been restarted and should be ready", name, namespace)
+		return nil
+	}
+
+	if isReady(kafka) {
+		log.Printf("Kafka cluster %s in namespace %s is ready and does not need to be restarted", name, namespace)
+		return nil
+	}
+
+	log.Printf("Waiting for Kafka cluster %s in namespace %s does not have paused reconciliation, but is not ready.", name, namespace)
+	log.Printf("Waiting for Kafka cluster %s in namespace %s to get ready.", name, namespace)
+	_, err = waitUntilReadyFn(strimziClient, name, namespace, timeout)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Kafka cluster %s in namespace %s has been restarted and should be ready", name, namespace)
+	return nil
 }
 
 func init() {
 	rootCmd.AddCommand(continueCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// continueCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// continueCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
