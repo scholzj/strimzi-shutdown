@@ -130,7 +130,7 @@ func waitUntilReady(client strimzi.Interface, name string, namespace string, tim
 
 	watcher, err := client.KafkaV1().Kafkas(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})
 	if err != nil {
-		panic(err)
+		return false, fmt.Errorf("failed to watch Kafka cluster %s in namespace %s: %w", name, namespace, err)
 	}
 
 	defer watcher.Stop()
@@ -172,7 +172,7 @@ func waitUntilReconciliationPaused(client strimzi.Interface, name string, namesp
 
 	watcher, err := client.KafkaV1().Kafkas(namespace).Watch(watchContext, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector(metav1.ObjectNameField, name).String()})
 	if err != nil {
-		panic(err)
+		return false, fmt.Errorf("failed to watch Kafka cluster %s in namespace %s: %w", name, namespace, err)
 	}
 
 	defer watcher.Stop()

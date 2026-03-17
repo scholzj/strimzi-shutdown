@@ -229,6 +229,24 @@ func TestWaitUntilReady_ReturnsErrorOnTimeout(t *testing.T) {
 	}
 }
 
+func TestWaitUntilReady_ReturnsErrorWhenWatchFails(t *testing.T) {
+	strimziClient := strimzifake.NewSimpleClientset()
+	wantErr := errors.New("watch failed")
+
+	strimziClient.PrependWatchReactor("kafkas", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, nil, wantErr
+	})
+
+	_, err := waitUntilReady(strimziClient, "my-cluster", "ns", 10)
+	if err == nil {
+		t.Fatal("expected watch error, got nil")
+	}
+
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
+	}
+}
+
 func TestWaitUntilReconciliationPaused_ReturnsTrueWhenPausedEventArrives(t *testing.T) {
 	strimziClient := strimzifake.NewSimpleClientset()
 	fakeWatch := watch.NewFake()
@@ -298,6 +316,24 @@ func TestWaitUntilReconciliationPaused_ReturnsErrorOnTimeout(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "timed out waiting for the Kafka cluster my-cluster in namespace ns to be paused") {
 		t.Fatalf("expected timeout error, got %v", err)
+	}
+}
+
+func TestWaitUntilReconciliationPaused_ReturnsErrorWhenWatchFails(t *testing.T) {
+	strimziClient := strimzifake.NewSimpleClientset()
+	wantErr := errors.New("watch failed")
+
+	strimziClient.PrependWatchReactor("kafkas", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, nil, wantErr
+	})
+
+	_, err := waitUntilReconciliationPaused(strimziClient, "my-cluster", "ns", 10)
+	if err == nil {
+		t.Fatal("expected watch error, got nil")
+	}
+
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected %v, got %v", wantErr, err)
 	}
 }
 
