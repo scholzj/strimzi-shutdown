@@ -26,6 +26,8 @@ import (
 	strimzi "github.com/scholzj/strimzi-go/pkg/client/clientset/versioned"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	appsv1client "k8s.io/client-go/kubernetes/typed/apps/v1"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 )
 
 type stopOptions struct {
@@ -34,6 +36,15 @@ type stopOptions struct {
 	kubeconfig string
 	timeout    uint32
 }
+
+type kubeClients interface {
+	AppsV1() appsv1client.AppsV1Interface
+	CoreV1() corev1client.CoreV1Interface
+}
+
+var waitUntilReconciliationPausedFn = waitUntilReconciliationPaused
+var deleteDeploymentFn = deleteDeployment
+var deletePodSetFn = deletePodSet
 
 func newStopCommand() *cobra.Command {
 	return &cobra.Command{
@@ -73,7 +84,7 @@ func stopOptionsFromCmd(cmd *cobra.Command) (stopOptions, error) {
 }
 
 func runStop(opts stopOptions) error {
-	kubeConfig, kubeConfigNamespace, err := loadKubeConfigAndNamespace(opts.kubeconfig)
+	kubeConfig, kubeConfigNamespace, err := kubeConfigAndNamespace(opts.kubeconfig)
 	if err != nil {
 		return err
 	}
@@ -83,12 +94,12 @@ func runStop(opts stopOptions) error {
 		return err
 	}
 
-	kube, err := newKubeClients(kubeConfig)
+	kube, err := kubeClient(kubeConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
 
-	strimziClient, err := newStrimziClients(kubeConfig)
+	strimziClient, err := strimziClient(kubeConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create Strimzi client: %w", err)
 	}

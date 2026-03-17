@@ -32,6 +32,8 @@ type continueOptions struct {
 	timeout    uint32
 }
 
+var waitUntilReadyFn = waitUntilReady
+
 func newContinueCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "continue",
@@ -70,7 +72,7 @@ func continueOptionsFromCmd(cmd *cobra.Command) (continueOptions, error) {
 }
 
 func runContinue(opts continueOptions) error {
-	kubeConfig, kubeConfigNamespace, err := loadKubeConfigAndNamespace(opts.kubeconfig)
+	kubeConfig, kubeConfigNamespace, err := kubeConfigAndNamespace(opts.kubeconfig)
 	if err != nil {
 		return err
 	}
@@ -80,7 +82,7 @@ func runContinue(opts continueOptions) error {
 		return err
 	}
 
-	strimziClient, err := newStrimziClients(kubeConfig)
+	strimziClient, err := strimziClient(kubeConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create Strimzi client: %w", err)
 	}
